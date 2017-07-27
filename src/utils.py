@@ -12,35 +12,77 @@ import configparser
 from lxml import html
 import requests
 
-#import httplib2
-import urllib
-
 from bs4 import BeautifulSoup, SoupStrainer
 import json
 
 ## Database
 import sqlite3
 
-
-def helloWorld():
-    return "Hello World"
-
-
 class DataBase:
-    def __init__(self):
-        pass
+    '''
+        home-made sqlite3 database interface to make it easier to do the specific commands
+        needed for this project
+    '''
+
+    def __init__(self, dbFilepath):
+        self._dbPath = dbFilepath
+
+    def connect(self):
+        self._connection = sqlite3.connect(self._dbPath)
+        self._cursor = self._connection.cursor()
+
+    def execute(self, executableString):
+        self._cursor.execute(executableString):
+
+    def createTable(self, attributes, executeCommand=True):
+        s = ''
+        for key, val in attributes.items():
+            s += key + ' ' + val + ', '
+        sql_create_command = '''CREATE TABLE car ( %s )''' %s[:-2]
+
+        if executeCommand:
+            self.execute(sql_create_command)
+
+        return sql_create_command
+
+    def deleteAllContents(self):
+        self._cursor.execute("DELETE FROM car;")
+
+    def save(self):
+        self._connection.commit()
+
+    def exit(self):
+        self._connection.close()
+
+    def getTableNames(self):
+        self._cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        return self._cursor.fetchall()
+
+    def getCursor(self):
+        return self._cursor
+
+    def getDBFilePath(self):
+        return self._dbPath
+        
 
 class htmlScraping:
     def __init__(self):
+        pass
+
+    def scrapeWithID(self, pageIDbase, ID):
+        pass
+
+    def scrapeAdIDs(self, pageBase):
         pass
 
 def getInfoFromPage(page):
 
     # try to open web page
     try:
-        response = urllib.request.urlopen(page)
-    except:
-        return None
+        req = requests.get(page)
+        response = req.text
+    except Exception as e:
+        return "Loading the web page has failed: ", e
 
     # initialize soup
     soup = BeautifulSoup(response, 'lxml')
@@ -57,7 +99,6 @@ def getInfoFromPage(page):
     # part 2 - get all other site-infos
     pagesConfig = configparser.ConfigParser()
     pagesConfig.read("config/siteSpecifics.ini")
-
     categories = pagesConfig.get('additionalAdInfo', 'categories').split('\n')
 
     adInfoDict2 = dict()
