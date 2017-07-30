@@ -9,4 +9,4 @@ def printPythonVersion():
 
 if __name__ == '__main__':
     printPythonVersion()
-    print(utils.helloWorld())
+    #print(utils.helloWorld())

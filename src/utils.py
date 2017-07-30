@@ -32,7 +32,8 @@ class DataBase:
         self._cursor = self._connection.cursor()
 
     def execute(self, executableString):
-        self._cursor.execute(executableString):
+        self._cursor.execute(executableString)
+        return self._cursor.fetchall()
 
     def createTable(self, attributes, executeCommand=True):
         s = ''
@@ -51,7 +52,7 @@ class DataBase:
     def save(self):
         self._connection.commit()
 
-    def exit(self):
+    def close(self):
         self._connection.close()
 
     def getTableNames(self):
@@ -63,7 +64,7 @@ class DataBase:
 
     def getDBFilePath(self):
         return self._dbPath
-        
+
 
 class htmlScraping:
     def __init__(self):
@@ -121,7 +122,11 @@ def getInfoFromPage(page):
 
     #part 3 - get Description text
     div = soup.find(attrs={"class": "g-col-12 description"})
-    adInfoDict2['description'] = (div.get_text(separator='\n'))
+    try:
+        adInfoDict2['description'] = (div.get_text(separator='\n').replace('"', '*'))
+    except:
+        # probably no description text available
+        adInfoDict2['description'] = None
 
     #part 4 - merge dicts
     allInfos = {**adInfoDict, **adInfoDict2}
