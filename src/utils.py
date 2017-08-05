@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 
 ## standard packages
-import numpy as np
 import os
+import sys
 import datetime
+import numpy as np
 
 ## Config Parster for initiation
 import configparser
 
 ## HTTP scraping packages
-from lxml import html
 import requests
 
 from bs4 import BeautifulSoup, SoupStrainer
@@ -118,28 +118,49 @@ class htmlScraping:
         # initiate local variables
         payload=dict()
         dataIDs = np.zeros([0, 4])
-        dbDataIDs = np.array(self._DB.execute("""SELECT adID from car""")) # ToDo: make a variable out of the name of the DB
+        dbDataIDs = np.array(self._DB.execute("""SELECT adID from car"""))
 
         for i in range(len(self._priceStepList)-1):
             payload['minPrice'] = self._priceStepList[i]
             payload['maxPrice'] = self._priceStepList[i+1]
 
+            # initiate progressBar
+            pbar = ProgressBar('50, current price range: %i - %i Euros' %(payload['minPrice'], payload['maxPrice']) )
+
             for i in range(50): # 50 is the maximum possible number of pages
+                pbar.update(i+1)
                 payload['pageNumber'] = i+1
                 req = requests.get(self._pageBase, params=payload) # create searchPageURL
 
                 soup = BeautifulSoup(req.text, "lxml")
-                for link in soup.find_all('a'):
-                    if link.has_attr('data-ad-id') and int(link['data-ad-id']) not in dbDataIDs:
-                        if dataIDs.shape[0] == 0 or link['data-ad-id'] not in dataIDs[:, 0]:
+                for link in soup.find_all('a'): # find all links
+                    if link.has_attr('data-ad-id'):
+                        adID = int(link['data-ad-id'])
+
+                        if dataIDs.shape[0] == 0 or str(adID) not in dataIDs[:, 0] and adID not in dbDataIDs:
                             onPos = link.get_text('href').find('online seit ')
                             onlineSince = link.get_text('href')[onPos+12 : onPos+22]
-                            dataIDs = np.vstack([dataIDs, [link['data-ad-id'], link['href'], link.get_text('href'), onlineSince]])
+                            dataIDs = np.vstack([dataIDs, [adID, link['href'], link.get_text('href'), onlineSince]])
+
+                        elif adID in dbDataIDs: # data ID already in Database
+                            # ToDo: update last seen value of said a
+                            today = str(datetime.date.today())
+                            try:
+                                self._DB.execute("""UPDATE car SET lastSeen=%s WHERE adID=%s""" %(today, adID))
+                            except Exception as e:
+                                print('\n', today)
+                                print(adID)
+                                print("""UPDATE car SET lastSeen=%s WHERE adID=%s""" %(today, adID))
+                                print(e)
+                        else:
+                            print ('\n', adID)
+                            print (dataIDs.shape[0] == 0 or str(adID) not in dataIDs[:, 0] and adID not in dbDataIDs)
 
         self._dataIDList = dataIDs
+        self._DB.save()
         return dataIDs
 
-    def scrapeWithID(self, eraseIDList=False):
+    def scrapeWithID(self, scrapeIDUrl, eraseIDList=False):
         """
             second htms scraping function
             here, the separate ads are accessed using the previously found adIDs
@@ -148,24 +169,41 @@ class htmlScraping:
             ToDo: add progressBar feature
         """
         dataIDs = self._dataIDList
+        dbDataIDs = np.array(self._DB.execute("""SELECT adID from car"""))
+        pbar = ProgressBar(dataIDs.shape[0])
+        today = str(datetime.date.today())
+
         for i in range(dataIDs.shape[0]):
-            try:
-                allInfos = self.getInfoFromPage(dataIDs[i, 1])
-                allInfos['firstSeen'] = dataIDs[i][3]
-                allInfos['lastSeen'] = str(datetime.datetime.now().date)
-            except Exception as e:
-                print ('Error during getting Information from Page at: ' + str(i) )
-                print (dataIDs[i])
-                print (e)
+            pbar.update(i+1)
+            if int(dataIDs[i, 0]) not in dbDataIDs:
+                try:
+                    idURL = scrapeIDUrl + dataIDs[i, 0]
+                    allInfos = self.getInfoFromPage(idURL)
+                    allInfos['firstSeen'] = dataIDs[i][3]
+                    allInfos['lastSeen'] = str(datetime.date.today())
+                except Exception as e:
+                    print ('\rError during getting Information from Page at: ' + str(i) )
+                    print (dataIDs[i])
+                    print (e)
 
-            try:
-                columns, values = self._insertIntoDB(allInfos)
-                self._DB.execute('''INSERT INTO car ( %s ) VALUES ( %s );''' %(columns, values) )
-            except Exception as e:
-                print ('Error during translating/writing Information to DB at: ' + str(i) )
-                print (dataIDs[i])
-                print (e)
+                try:
+                    columns, values = self._insertIntoDB(allInfos)
+                    self._DB.execute('''INSERT INTO car ( %s ) VALUES ( %s );''' %(columns, values) )
+                except Exception as e:
+                    print ('\rError during translating/writing Information to DB at: ' + str(i) )
+                    print (dataIDs[i])
+                    print (e)
+            else:
+                print (i)
+                try:
+                    self._DB.execute("""UPDATE car SET lastSeen=%s WHERE adID=%s""" %(today, dataIDs[i, 0]))
+                except Exception as e:
+                    print(today)
+                    print(link['data-ad-id'])
+                    print("""UPDATE car SET lastSeen=%s WHERE adID=%s""" %(today, dataIDs[i, 0]))
+                    print(e)
 
+        self._DB.save()
         # as soon as dataIDList is processed, erase it
         if eraseIDList:
             self._dataIDList = None
@@ -238,3 +276,26 @@ class htmlScraping:
         allInfos = {**adInfoDict, **adInfoDict2}
 
         return allInfos
+
+class ProgressBar:
+    """
+        a simple progress handler to monitor the status of some process
+    """
+    def __init__(self, *args):
+        if args:
+            self._maxLength = str(args[0])
+        else:
+            self._maxLength = None
+        self._input = None
+
+    def __str__(self):
+
+        if self._maxLength:
+            return self._input + " / " + self._maxLength
+        else:
+            return self._input
+
+    def update(self, i):
+        self._input = str(i)
+        sys.stdout.write('\r' + self.__str__())
+        sys.stdout.flush()
