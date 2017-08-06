@@ -35,19 +35,19 @@ class DataBase:
         self._cursor.execute(executableString)
         return self._cursor.fetchall()
 
-    def createTable(self, attributes, executeCommand=True):
+    def createTable(self, tableName, attributes, executeCommand=True):
         s = ''
         for key, val in attributes.items():
             s += key + ' ' + val + ', '
-        sql_create_command = '''CREATE TABLE car ( %s )''' %s[:-2]
+        sql_create_command = '''CREATE TABLE %s ( %s )''' %(tableName, s[:-2])
 
         if executeCommand:
             self.execute(sql_create_command)
 
         return sql_create_command
 
-    def deleteAllContents(self):
-        self._cursor.execute("DELETE FROM car;")
+    def deleteAllContents(self, tableName):
+        self._cursor.execute("DELETE FROM %s;" %tableName)
 
     def save(self):
         self._connection.commit()
@@ -67,7 +67,7 @@ class DataBase:
 
 
 class htmlScraping:
-    def __init__(self, searchUrlBase, DataBase, configFile='config/siteSpecifics.ini'):
+    def __init__(self, searchUrlBase, idUrlBase, DataBase, configFile='config/siteSpecifics.ini'):
         """
             initialize scraping, currently only with defined steps in car prices (EUR).
             other search limits not enabled right now
@@ -75,6 +75,7 @@ class htmlScraping:
         """
 
         self._pageBase = searchUrlBase
+        self._pageBaseID = idUrlBase
         self._priceStepList = None
 
         # initiate DataBase
@@ -107,60 +108,71 @@ class htmlScraping:
     def getPriceStepList(self):
         return self._priceStepList
 
-    def scrapeAdIDs(self):
+    def autoScraping(self):
+        if not self._priceStepList:
+            return "set Price step list first"
+        for i in range(len(self._priceStepList)-1):
+            minPrice = self._priceStepList[i]
+            maxPrice = self._priceStepList[i+1]
+
+            adIDList = self.scrapeAdIDs(minPrice, maxPrice)
+            print("\n", adIDList.shape)
+            self.scrapeWithID(eraseIDList=True)
+            #self._DB.save()
+
+    def scrapeAdIDs(self, minPrice, maxPrice):
         """
             first actual html scraping function
             this function returns a list of adIDs, which can later be used to access the separate ads
         """
-        if not self._priceStepList:
-            raise Exception("min and max price not defined - execute setPriceStepList first!")
 
         # initiate local variables
         payload=dict()
         dataIDs = np.zeros([0, 4])
         dbDataIDs = np.array(self._DB.execute("""SELECT adID from car"""))
 
-        for i in range(len(self._priceStepList)-1):
-            payload['minPrice'] = self._priceStepList[i]
-            payload['maxPrice'] = self._priceStepList[i+1]
+        #for i in range(len(self._priceStepList)-1):
+        payload['minPrice'] = minPrice
+        payload['maxPrice'] = maxPrice
 
-            # initiate progressBar
-            pbar = ProgressBar('50, current price range: %i - %i Euros' %(payload['minPrice'], payload['maxPrice']) )
+        # initiate progressBar
+        pbar = ProgressBar('50, current price range: %i - %i Euros' %(payload['minPrice'], payload['maxPrice']) )
 
-            for i in range(50): # 50 is the maximum possible number of pages
-                pbar.update(i+1)
-                payload['pageNumber'] = i+1
-                req = requests.get(self._pageBase, params=payload) # create searchPageURL
+        for i in range(50): # 50 is the maximum possible number of pages
+            pbar.update(i+1)
+            payload['pageNumber'] = i+1
+            req = requests.get(self._pageBase, params=payload) # create searchPageURL
 
-                soup = BeautifulSoup(req.text, "lxml")
-                for link in soup.find_all('a'): # find all links
-                    if link.has_attr('data-ad-id'):
-                        adID = int(link['data-ad-id'])
+            soup = BeautifulSoup(req.text, "lxml")
+            for link in soup.find_all('a'): # find all links
+                if link.has_attr('data-ad-id'):
+                    adID = int(link['data-ad-id'])
 
-                        if dataIDs.shape[0] == 0 or str(adID) not in dataIDs[:, 0] and adID not in dbDataIDs:
-                            onPos = link.get_text('href').find('online seit ')
-                            onlineSince = link.get_text('href')[onPos+12 : onPos+22]
-                            dataIDs = np.vstack([dataIDs, [adID, link['href'], link.get_text('href'), onlineSince]])
+                    if dataIDs.shape[0] == 0 or str(adID) not in dataIDs[:, 0] and adID not in dbDataIDs:
+                        onPos = link.get_text('href').find('online seit ')
+                        onlineSince = link.get_text('href')[onPos+12 : onPos+22]
+                        dataIDs = np.vstack([dataIDs, [adID, link['href'], link.get_text('href'), onlineSince]])
 
-                        elif adID in dbDataIDs: # data ID already in Database
-                            # ToDo: update last seen value of said a
-                            today = str(datetime.date.today())
-                            try:
-                                self._DB.execute("""UPDATE car SET lastSeen=%s WHERE adID=%s""" %(today, adID))
-                            except Exception as e:
-                                print('\n', today)
-                                print(adID)
-                                print("""UPDATE car SET lastSeen=%s WHERE adID=%s""" %(today, adID))
-                                print(e)
-                        else:
-                            print ('\n', adID)
-                            print (dataIDs.shape[0] == 0 or str(adID) not in dataIDs[:, 0] and adID not in dbDataIDs)
+                    elif adID in dbDataIDs: # data ID already in Database
+                        # ToDo: update last seen value of said a
+                        today = str(datetime.date.today())
+                        try:
+                            self._DB.execute("""UPDATE car SET lastSeen=%s WHERE adID=%s""" %(today, adID))
+                        except Exception as e:
+                            print('\n', today)
+                            print(adID)
+                            print("""UPDATE car SET lastSeen=%s WHERE adID=%s""" %(today, adID))
+                            print(e)
+                    else:
+                        pass
+                        #print ('\n', adID)
+                        #print (dataIDs.shape[0] == 0 or str(adID) not in dataIDs[:, 0] and adID not in dbDataIDs)
 
         self._dataIDList = dataIDs
         self._DB.save()
         return dataIDs
 
-    def scrapeWithID(self, scrapeIDUrl, eraseIDList=False):
+    def scrapeWithID(self, eraseIDList=False):
         """
             second htms scraping function
             here, the separate ads are accessed using the previously found adIDs
@@ -177,7 +189,7 @@ class htmlScraping:
             pbar.update(i+1)
             if int(dataIDs[i, 0]) not in dbDataIDs:
                 try:
-                    idURL = scrapeIDUrl + dataIDs[i, 0]
+                    idURL = self._pageBaseID + dataIDs[i, 0]
                     allInfos = self.getInfoFromPage(idURL)
                     allInfos['firstSeen'] = dataIDs[i][3]
                     allInfos['lastSeen'] = str(datetime.date.today())
@@ -192,6 +204,7 @@ class htmlScraping:
                 except Exception as e:
                     print ('\rError during translating/writing Information to DB at: ' + str(i) )
                     print (dataIDs[i])
+                    print (columns, values)
                     print (e)
             else:
                 print (i)
@@ -216,6 +229,8 @@ class htmlScraping:
         columns = ''
         values = ''
         for key, val in dictionary.items():
+            key = key.replace('envkv.', '')
+
             if type(val) == dict:
                 c, v = self._insertIntoDB(val, superKey=superKey + key)
                 columns += c
@@ -223,7 +238,7 @@ class htmlScraping:
             elif key.lower() in self._attributes.keys():
                 columns += superKey + key + ', '
                 values += '"' + str(val).replace('"', '*') + '"' + ', '
-        
+
         values = values.replace('\xa0', ' ')
         values = values.replace('\u2009', ' ')
         return columns[:-2], values[:-2]
