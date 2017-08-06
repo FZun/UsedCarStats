@@ -223,7 +223,9 @@ class htmlScraping:
             elif key.lower() in self._attributes.keys():
                 columns += superKey + key + ', '
                 values += '"' + str(val).replace('"', '*') + '"' + ', '
-
+        
+        values = values.replace('\xa0', ' ')
+        values = values.replace('\u2009', ' ')
         return columns[:-2], values[:-2]
 
     def getInfoFromPage(self, page):
