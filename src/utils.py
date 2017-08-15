@@ -5,6 +5,7 @@ import os
 import sys
 import datetime
 import numpy as np
+import time
 
 ## Config Parster for initiation
 import configparser
@@ -78,6 +79,12 @@ class htmlScraping:
         self._pageBaseID = idUrlBase
         self._priceStepList = None
 
+        self._headers = {
+                  'Accept': "*/*",
+                  'User-Agent': "curiosity.py",
+                  'X-Love': "hey sysadmin! you're awesome! <3"
+                  }
+
         # initiate DataBase
         self._DB = DataBase
         self._DB.connect()
@@ -118,6 +125,7 @@ class htmlScraping:
             adIDList = self.scrapeAdIDs(minPrice, maxPrice)
             print("\n", adIDList.shape)
             self.scrapeWithID(eraseIDList=True)
+            time.pause(.5)
             #self._DB.save()
 
     def scrapeAdIDs(self, minPrice, maxPrice):
@@ -141,8 +149,7 @@ class htmlScraping:
         for i in range(50): # 50 is the maximum possible number of pages
             pbar.update(i+1)
             payload['pageNumber'] = i+1
-            req = requests.get(self._pageBase, params=payload) # create searchPageURL
-
+            req = requests.get(self._pageBase, params=payload, headers=self._headers) # create searchPageURL
             soup = BeautifulSoup(req.text, "lxml")
             for link in soup.find_all('a'): # find all links
                 if link.has_attr('data-ad-id'):
@@ -184,6 +191,7 @@ class htmlScraping:
         dbDataIDs = np.array(self._DB.execute("""SELECT adID from car"""))
         pbar = ProgressBar(dataIDs.shape[0])
         today = str(datetime.date.today())
+        allInfos = None
 
         for i in range(dataIDs.shape[0]):
             pbar.update(i+1)
@@ -194,9 +202,12 @@ class htmlScraping:
                     allInfos['firstSeen'] = dataIDs[i][3]
                     allInfos['lastSeen'] = str(datetime.date.today())
                 except Exception as e:
+                    allInfos
                     print ('\rError during getting Information from Page at: ' + str(i) )
                     print (dataIDs[i])
                     print (e)
+                    allInfos = None
+                    break
 
                 try:
                     columns, values = self._insertIntoDB(allInfos)
@@ -204,7 +215,7 @@ class htmlScraping:
                 except Exception as e:
                     print ('\rError during translating/writing Information to DB at: ' + str(i) )
                     print (dataIDs[i])
-                    print (columns, values)
+                    #print (columns, values)
                     print (e)
             else:
                 print (i)
@@ -249,7 +260,7 @@ class htmlScraping:
         """
         # try to open web page
         try:
-            req = requests.get(page)
+            req = requests.get(page, headers=self._headers)
             response = req.text
         except Exception as e:
             return "Loading the web page has failed: ", e
