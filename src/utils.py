@@ -125,7 +125,7 @@ class htmlScraping:
             adIDList = self.scrapeAdIDs(minPrice, maxPrice)
             print("\n", adIDList.shape)
             self.scrapeWithID(eraseIDList=True)
-            time.pause(.5)
+            #time.sleep(.1)
             #self._DB.save()
 
     def scrapeAdIDs(self, minPrice, maxPrice):
@@ -204,17 +204,17 @@ class htmlScraping:
                 except Exception as e:
                     allInfos
                     print ('\rError during getting Information from Page at: ' + str(i) )
-                    print (dataIDs[i])
+                    print (dataIDs[i][0])
                     print (e)
                     allInfos = None
-                    break
+                    #break
 
                 try:
                     columns, values = self._insertIntoDB(allInfos)
                     self._DB.execute('''INSERT INTO car ( %s ) VALUES ( %s );''' %(columns, values) )
                 except Exception as e:
                     print ('\rError during translating/writing Information to DB at: ' + str(i) )
-                    print (dataIDs[i])
+                    print (dataIDs[i][0])
                     #print (columns, values)
                     print (e)
             else:
@@ -263,41 +263,55 @@ class htmlScraping:
             req = requests.get(page, headers=self._headers)
             response = req.text
         except Exception as e:
-            return "Loading the web page has failed: ", e
+            print ("Loading the web page has failed: ", e)
+            return None
 
         # initialize soup
-        soup = BeautifulSoup(response, 'lxml')
-        siteInfo = soup.decode()
+        try:
+            soup = BeautifulSoup(response, 'lxml')
+            siteInfo = soup.decode()
+        except Exception as e:
+            print ("Soup decoding failed: ", e)
+            return None
 
         # part 1 - find the dict inside the web page
-        firstPos = siteInfo.find('mobile.dart.setAdData')
-        finalPos = siteInfo[firstPos:].find('\n')
-        stringDict = siteInfo[firstPos + 22 : firstPos + finalPos - 2]
+        try:
+            firstPos = siteInfo.find('mobile.dart.setAdData')
+            finalPos = siteInfo[firstPos:].find('\n')
+            stringDict = siteInfo[firstPos + 22 : firstPos + finalPos - 2]
 
-        json_acceptable_string = stringDict.replace("'", "\"")
-        adInfoDict = json.loads(json_acceptable_string)
+            json_acceptable_string = stringDict.replace("'", "\"")
+            adInfoDict = json.loads(json_acceptable_string)
+        except Exception as e:
+            print ("finding dict in web page failed: ", e)
+            return None
 
         # part 2 - get all other site-infos
-        adInfoDict2 = dict()
-        for cat in self._categories:
-            try:
-                div = soup.find('div', id=cat)
-                output = div.get_text()
-                if cat=='rbt-features':
-                    output = div.get_text(separator=', ')
-                    cat = 'rbt-features  '
-                #print ( "%30s" %cat[4:-2], output )
-                adInfoDict2[cat[4:-2]] = output
-            except:
-                #print ( "%30s" %cat[4:-2], 'NO INFORMATION' )
-                adInfoDict2[cat[4:-2]] = 'No Information'
+        try:
+            adInfoDict2 = dict()
+            for cat in self._categories:
+                try:
+                    div = soup.find('div', id=cat)
+                    output = div.get_text()
+                    if cat=='rbt-features':
+                        output = div.get_text(separator=', ')
+                        cat = 'rbt-features  '
+                    #print ( "%30s" %cat[4:-2], output )
+                    adInfoDict2[cat[4:-2]] = output
+                except:
+                    #print ( "%30s" %cat[4:-2], 'NO INFORMATION' )
+                    adInfoDict2[cat[4:-2]] = 'No Information'
+        except:
+            print("getting additional info failed ", e)
+            return None
 
         #part 3 - get Description text
-        div = soup.find(attrs={"class": "g-col-12 description"})
         try:
+            div = soup.find(attrs={"class": "g-col-12 description"})
             adInfoDict2['description'] = (div.get_text(separator='\n').replace('"', '*'))
         except:
             # probably no description text available
+            #print("getting description text failed")
             adInfoDict2['description'] = None
 
         #part 4 - merge dicts
