@@ -10,7 +10,6 @@ import collections
 import json
 
 import scipy as sp
-import pandas as pd
 import json
 
 def pcascoreplot(scores, ncomponents=5, alpha=1, labels=[0], labelmap={0: 'b'},
